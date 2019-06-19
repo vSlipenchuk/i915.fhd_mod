@@ -1,0 +1,92 @@
+diff --git a/drivers/gpu/drm/i915/i915_params.c b/drivers/gpu/drm/i915/i915_params.c
+index 8ab003d..26107a5 100644
+--- a/drivers/gpu/drm/i915/i915_params.c
++++ b/drivers/gpu/drm/i915/i915_params.c
+@@ -65,8 +65,10 @@ struct i915_params i915 __read_mostly = {
+ 	.inject_load_failure = 0,
+ 	.enable_dpcd_backlight = false,
+ 	.enable_gvt = false,
++	.fhd_mod=0,
+ };
+ 
++
+ module_param_named(modeset, i915.modeset, int, 0400);
+ MODULE_PARM_DESC(modeset,
+ 	"Use kernel modesetting [KMS] (0=disable, "
+@@ -257,3 +259,7 @@ MODULE_PARM_DESC(enable_dpcd_backlight,
+ module_param_named(enable_gvt, i915.enable_gvt, bool, 0400);
+ MODULE_PARM_DESC(enable_gvt,
+ 	"Enable support for Intel GVT-g graphics virtualization host support(default:false)");
++
++module_param_named(fhd_mod, i915.fhd_mod, int, 0400);
++MODULE_PARM_DESC(fhd_mod,
++	"Full-HD eDP screen mod (1=on,0=off [default])");
+\ No newline at end of file
+diff --git a/drivers/gpu/drm/i915/i915_params.h b/drivers/gpu/drm/i915/i915_params.h
+index ac84470..076635c 100644
+--- a/drivers/gpu/drm/i915/i915_params.h
++++ b/drivers/gpu/drm/i915/i915_params.h
+@@ -68,7 +68,8 @@
+ 	func(bool, nuclear_pageflip); \
+ 	func(bool, enable_dp_mst); \
+ 	func(bool, enable_dpcd_backlight); \
+-	func(bool, enable_gvt)
++	func(bool, enable_gvt);\
++	func(int,fhd_mod)
+ 
+ #define MEMBER(T, member) T member
+ struct i915_params {
+diff --git a/drivers/gpu/drm/i915/i915_trace.h b/drivers/gpu/drm/i915/i915_trace.h
+index ef72da7..7cc8c7c 100644
+--- a/drivers/gpu/drm/i915/i915_trace.h
++++ b/drivers/gpu/drm/i915/i915_trace.h
+@@ -1032,5 +1032,5 @@ TRACE_EVENT(switch_mm,
+ 
+ /* This part must be outside protection */
+ #undef TRACE_INCLUDE_PATH
+-#define TRACE_INCLUDE_PATH .
++#define TRACE_INCLUDE_PATH ../../drivers/gpu/drm/i915
+ #include <trace/define_trace.h>
+diff --git a/drivers/gpu/drm/i915/intel_dp.c b/drivers/gpu/drm/i915/intel_dp.c
+index 09f2744..2acd84a 100644
+--- a/drivers/gpu/drm/i915/intel_dp.c
++++ b/drivers/gpu/drm/i915/intel_dp.c
+@@ -113,7 +113,8 @@ static bool is_edp(struct intel_dp *intel_dp)
+ {
+ 	struct intel_digital_port *intel_dig_port = dp_to_dig_port(intel_dp);
+ 
+-	return intel_dig_port->base.type == INTEL_OUTPUT_EDP;
++	return intel_dig_port->base.type == INTEL_OUTPUT_EDP 
++         	||  (  i915.fhd_mod>0 && strncmp(intel_dp->attached_connector->base.name, "DP-3", 4) == 0 );
+ }
+ 
+ static struct drm_device *intel_dp_to_dev(struct intel_dp *intel_dp)
+@@ -5152,10 +5153,13 @@ bool intel_dp_is_edp(struct drm_i915_private *dev_priv, enum port port)
+ 	 */
+ 	if (INTEL_GEN(dev_priv) < 5)
+ 		return false;
+-
++	if (i915.fhd_mod>0) {
++		if (INTEL_GEN(dev_priv) < 9 && port == PORT_D)
++ 		return true;
++	} else {
+ 	if (INTEL_GEN(dev_priv) < 9 && port == PORT_A)
+ 		return true;
+-
++        }
+ 	return intel_bios_is_port_edp(dev_priv, port);
+ }
+ 
+diff --git a/drivers/gpu/drm/i915/intel_lvds.c b/drivers/gpu/drm/i915/intel_lvds.c
+index 8e21577..d6d4e47 100644
+--- a/drivers/gpu/drm/i915/intel_lvds.c
++++ b/drivers/gpu/drm/i915/intel_lvds.c
+@@ -950,7 +950,7 @@ void intel_lvds_init(struct drm_i915_private *dev_priv)
+ 		return;
+ 
+ 	/* Skip init on machines we know falsely report LVDS */
+-	if (dmi_check_system(intel_no_lvds))
++	if (i915.fhd_mod>0 || dmi_check_system(intel_no_lvds))
+ 		return;
+ 
+ 	if (HAS_PCH_SPLIT(dev_priv))
